@@ -19,6 +19,7 @@ pub struct MinesweeperGame {
     game: Game,
     phase: Phase,
     elapsed: Duration,
+    celebration_elapsed: Duration,
     best_time: Option<Duration>,
 }
 
@@ -28,6 +29,7 @@ impl MinesweeperGame {
             game: Game::new(),
             phase: Phase::Playing,
             elapsed: Duration::ZERO,
+            celebration_elapsed: Duration::ZERO,
             best_time: best_time_centis.map(duration_from_centis),
         }
     }
@@ -37,6 +39,11 @@ impl MinesweeperGame {
             self.restart();
         }
 
+        #[cfg(debug_assertions)]
+        if self.phase == Phase::Playing && ui.key('v') {
+            self.trigger_debug_victory_preview();
+        }
+
         self.handle_cursor_input(ui);
 
         if self.phase == Phase::Playing {
@@ -44,6 +51,8 @@ impl MinesweeperGame {
                 self.elapsed += delta;
             }
             self.handle_action_input(ui);
+        } else if self.phase == Phase::Won {
+            self.celebration_elapsed += delta;
         }
 
         self.render(ui);
@@ -58,6 +67,7 @@ impl MinesweeperGame {
         self.game = Game::new();
         self.phase = Phase::Playing;
         self.elapsed = Duration::ZERO;
+        self.celebration_elapsed = Duration::ZERO;
     }
 
     fn handle_cursor_input(&mut self, ui: &mut Context) {
@@ -89,10 +99,18 @@ impl MinesweeperGame {
                         Some(best) if best <= self.elapsed => Some(best),
                         _ => Some(self.elapsed),
                     };
+                    self.celebration_elapsed = Duration::ZERO;
                     Phase::Won
                 }
             };
         }
+    }
+
+    #[cfg(debug_assertions)]
+    fn trigger_debug_victory_preview(&mut self) {
+        self.game.force_win();
+        self.phase = Phase::Won;
+        self.celebration_elapsed = Duration::ZERO;
     }
 
     fn render(&self, ui: &mut Context) {
@@ -111,6 +129,8 @@ impl MinesweeperGame {
                     ))
                     .fg(Color::Yellow);
                     ui.text("Enter open  ·  f flag");
+                    #[cfg(debug_assertions)]
+                    ui.text("v debug clear preview").dim();
                     ui.text("g game select  ·  q quit");
                 });
             return;
@@ -129,7 +149,7 @@ impl MinesweeperGame {
 
                 let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
                     let _ = ui.container().align_self(Align::Start).col(|ui| {
-                        render_board(ui, &self.game, self.phase, theme);
+                        render_board(ui, &self.game, self.phase, theme, self.celebration_elapsed);
                     });
                     let _ = ui.container().align_self(Align::Start).col(|ui| {
                         render_sidebar(ui, self, theme);
@@ -305,12 +325,39 @@ impl Game {
         MINE_COUNT as i32 - self.flag_count as i32
     }
 
+    #[cfg(debug_assertions)]
+    fn force_win(&mut self) {
+        if !self.mines_armed {
+            self.place_mines((self.cursor_x, self.cursor_y));
+        }
+
+        self.revealed_safe_cells = 0;
+        self.flag_count = 0;
+        self.exploded = None;
+
+        for row in &mut self.board {
+            for cell in row {
+                if cell.has_mine {
+                    cell.state = CellState::Flagged;
+                    self.flag_count += 1;
+                } else {
+                    cell.state = CellState::Revealed;
+                    self.revealed_safe_cells += 1;
+                }
+            }
+        }
+    }
+
     fn render_cell(&self, x: usize, y: usize, phase: Phase) -> RenderCell {
         let cell = self.board[y][x];
         let is_exploded = self.exploded == Some((x, y));
 
         if is_exploded {
             return RenderCell::Exploded;
+        }
+
+        if phase == Phase::Won && cell.has_mine {
+            return RenderCell::Flagged;
         }
 
         if phase == Phase::Lost && cell.has_mine {
@@ -389,7 +436,13 @@ impl Randomizer {
     }
 }
 
-fn render_board(ui: &mut Context, game: &Game, phase: Phase, theme: Theme) {
+fn render_board(
+    ui: &mut Context,
+    game: &Game,
+    phase: Phase,
+    theme: Theme,
+    celebration_elapsed: Duration,
+) {
     let _ = ui.bordered(Border::Double).col(|ui| {
         let _ = ui.container().gap(0).col(|ui| {
             for y in 0..BOARD_HEIGHT {
@@ -398,8 +451,12 @@ fn render_board(ui: &mut Context, game: &Game, phase: Phase, theme: Theme) {
                         draw_cell(
                             ui,
                             game.render_cell(x, y, phase),
+                            x,
+                            y,
                             x == game.cursor_x && y == game.cursor_y,
+                            phase,
                             theme,
+                            celebration_elapsed,
                         );
                     }
                 });
@@ -471,6 +528,10 @@ fn render_sidebar(ui: &mut Context, game: &MinesweeperGame, theme: Theme) {
             } else {
                 ui.text("r restart").fg(Color::LightYellow);
             }
+            #[cfg(debug_assertions)]
+            if game.phase == Phase::Playing {
+                ui.text("v - debug clear").fg(Color::LightCyan);
+            }
             ui.text("q quit").dim();
         });
     });
@@ -480,7 +541,7 @@ fn render_phase_banner(ui: &mut Context, phase: Phase) {
     match phase {
         Phase::Playing => ui.text(" "),
         Phase::Won => ui
-            .text("Clear  ·  press r to restart")
+            .text("Clear  ·  victory wave active  ·  press r to restart")
             .bold()
             .fg(Color::LightGreen),
         Phase::Lost => ui
@@ -490,7 +551,16 @@ fn render_phase_banner(ui: &mut Context, phase: Phase) {
     };
 }
 
-fn draw_cell(ui: &mut Context, cell: RenderCell, selected: bool, theme: Theme) {
+fn draw_cell(
+    ui: &mut Context,
+    cell: RenderCell,
+    x: usize,
+    y: usize,
+    selected: bool,
+    phase: Phase,
+    theme: Theme,
+    celebration_elapsed: Duration,
+) {
     let (content, mut style) = match cell {
         RenderCell::Hidden => ("·", Style::new().fg(theme.text_dim)),
         RenderCell::Empty => (" ", Style::new().fg(theme.text_dim)),
@@ -501,11 +571,106 @@ fn draw_cell(ui: &mut Context, cell: RenderCell, selected: bool, theme: Theme) {
         RenderCell::Exploded => ("*", Style::new().fg(theme.error).bold()),
     };
 
+    if phase == Phase::Won {
+        style = celebration_style(style, cell, x, y, celebration_elapsed);
+    }
+
     if selected {
-        style = style.reversed().bold();
+        style = if phase == Phase::Won {
+            style.underline().bold()
+        } else {
+            style.reversed().bold()
+        };
     }
 
     ui.styled(format!("{content} "), style);
+}
+
+fn celebration_style(
+    style: Style,
+    cell: RenderCell,
+    x: usize,
+    y: usize,
+    elapsed: Duration,
+) -> Style {
+    let background = celebration_color(x, y, elapsed);
+    let foreground = celebration_foreground(cell, background, x, y, elapsed);
+
+    style.bg(background).fg(foreground)
+}
+
+fn celebration_color(x: usize, y: usize, elapsed: Duration) -> Color {
+    let elapsed = elapsed.as_secs_f32();
+    let diagonal = (x + y) as f32 / (BOARD_WIDTH + BOARD_HEIGHT - 2) as f32;
+    let center_x = (BOARD_WIDTH - 1) as f32 / 2.0;
+    let center_y = (BOARD_HEIGHT - 1) as f32 / 2.0;
+    let dx = x as f32 - center_x;
+    let dy = y as f32 - center_y;
+    let distance = (dx * dx + dy * dy).sqrt() / (center_x * center_x + center_y * center_y).sqrt();
+    let gradient_progress = (elapsed * 0.92 + diagonal * 1.45 - distance * 0.28).rem_euclid(1.0);
+    let swirl_progress = (elapsed * 1.34 + distance * 0.82 + diagonal * 0.4).rem_euclid(1.0);
+    let pulse = ((elapsed * 12.8 - distance * 15.0 + diagonal * 9.0).sin() + 1.0) * 0.5;
+    let base = gradient_sample(gradient_progress);
+    let swirl = gradient_sample(swirl_progress).lighten(0.12);
+    let blended = swirl.blend(base, 0.56 + pulse * 0.18);
+
+    lighten_rgb(blended, 0.05 + pulse * 0.18)
+}
+
+fn celebration_foreground(
+    cell: RenderCell,
+    background: Color,
+    x: usize,
+    y: usize,
+    elapsed: Duration,
+) -> Color {
+    let elapsed = elapsed.as_secs_f32();
+    let diagonal = (x + y) as f32 / (BOARD_WIDTH + BOARD_HEIGHT - 2) as f32;
+    let accent =
+        gradient_sample((elapsed * 1.7 + diagonal * 1.8 + y as f32 * 0.015).rem_euclid(1.0));
+    let contrast = Color::contrast_fg(background);
+
+    match cell {
+        RenderCell::Flagged => accent.lighten(0.28).blend(contrast, 0.72),
+        RenderCell::Number(_) => accent.lighten(0.18).blend(contrast, 0.52),
+        RenderCell::Mine | RenderCell::Exploded | RenderCell::WrongFlag => {
+            Color::Rgb(255, 250, 250).blend(accent, 0.35)
+        }
+        RenderCell::Hidden | RenderCell::Empty => contrast.blend(accent, 0.22),
+    }
+}
+
+fn gradient_sample(progress: f32) -> Color {
+    const PALETTE: [(u8, u8, u8); 7] = [
+        (255, 72, 72),
+        (255, 146, 43),
+        (255, 231, 92),
+        (94, 241, 117),
+        (39, 225, 255),
+        (61, 112, 255),
+        (212, 76, 255),
+    ];
+
+    let scaled = progress.rem_euclid(1.0) * PALETTE.len() as f32;
+    let index = scaled.floor() as usize % PALETTE.len();
+    let next = (index + 1) % PALETTE.len();
+    let blend = scaled.fract();
+    let (r1, g1, b1) = PALETTE[index];
+    let (r2, g2, b2) = PALETTE[next];
+
+    Color::Rgb(
+        lerp_channel(r1, r2, blend),
+        lerp_channel(g1, g2, blend),
+        lerp_channel(b1, b2, blend),
+    )
+}
+
+fn lighten_rgb(color: Color, amount: f32) -> Color {
+    Color::Rgb(255, 255, 255).blend(color, 1.0 - amount.clamp(0.0, 1.0))
+}
+
+fn lerp_channel(start: u8, end: u8, amount: f32) -> u8 {
+    (start as f32 + (end as f32 - start as f32) * amount.clamp(0.0, 1.0)).round() as u8
 }
 
 fn number_text(count: u8) -> &'static str {
@@ -621,6 +786,34 @@ mod tests {
         assert_eq!(result, TurnResult::Lost);
         assert_eq!(game.exploded, Some((1, 1)));
         assert_eq!(game.board[1][1].state, CellState::Revealed);
+    }
+
+    #[test]
+    fn winning_board_renders_hidden_mines_as_flags() {
+        let mut game = Game::new();
+        game.board[2][2].has_mine = true;
+
+        assert_eq!(game.render_cell(2, 2, Phase::Won), RenderCell::Flagged);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_force_win_reveals_safe_cells_and_flags_mines() {
+        let mut game = Game::new();
+
+        game.force_win();
+
+        assert!(game.mines_armed);
+        assert_eq!(game.revealed_safe_cells, SAFE_CELL_COUNT);
+        assert_eq!(game.flag_count, MINE_COUNT);
+        assert_eq!(count_mines(&game), MINE_COUNT);
+        assert!(game.board.iter().flatten().all(|cell| {
+            if cell.has_mine {
+                cell.state == CellState::Flagged
+            } else {
+                cell.state == CellState::Revealed
+            }
+        }));
     }
 
     fn count_mines(game: &Game) -> usize {
