@@ -13,7 +13,7 @@ const GAME_WIDTH: u32 = BOARD_WIDTH as u32 * CELL_WIDTH + SIDEBAR_WIDTH + 7;
 const LINE_CLEAR_ANIMATION: Duration = Duration::from_millis(220);
 const SIMPLE_KICKS: [(i32, i32); 6] = [(0, 0), (0, -1), (-1, 0), (1, 0), (-2, 0), (2, 0)];
 const EMPTY_CELL: Color = Color::Indexed(244);
-const GHOST_CELL: Color = Color::Indexed(240);
+const GHOST_CELL: Color = Color::Indexed(230);
 const CLEAR_FLASH_CELL: Color = Color::LightYellow;
 
 type Board = [[Option<TetrominoKind>; BOARD_WIDTH]; BOARD_HEIGHT];
@@ -184,10 +184,7 @@ impl TetrisGame {
             .title("Tetris")
             .w(GAME_WIDTH)
             .ml(left)
-            .p(1)
-            .gap(1)
             .col(|ui| {
-                ui.text("tetris").bold().fg(Color::LightCyan);
                 ui.text("g game select  ·  r restart  ·  q quit").dim();
                 render_phase_banner(ui, self.phase);
 
@@ -641,18 +638,18 @@ fn render_sidebar(ui: &mut Context, game: &Game, phase: Phase, high_score: u32) 
                 });
             });
 
-        ui.separator();
-        ui.text("←→ move  ↓ drop").dim();
-        ui.text("↑/x rotate").dim();
-        ui.text("space hard drop").dim();
-        if phase == Phase::Paused {
-            ui.text("p resume").fg(Color::LightYellow);
-        } else if phase == Phase::GameOver {
-            ui.text("r restart").fg(Color::LightRed);
-        } else {
-            ui.text("p pause  g menu").dim();
-        }
-        ui.text("q quit").dim();
+        let _ = ui.container().title("control").gap(0).col(|ui| {
+            ui.text("h j k l - move ").dim();
+            ui.text("space - drop").dim();
+            if phase == Phase::Paused {
+                ui.text("p resume").fg(Color::LightYellow);
+            } else if phase == Phase::GameOver {
+                ui.text("r restart").fg(Color::LightRed);
+            } else {
+                ui.text("p pause  g menu").dim();
+            }
+            ui.text("q quit").dim();
+        });
     });
 }
 
