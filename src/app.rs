@@ -3,8 +3,10 @@ use std::time::Instant;
 use slt::{Border, Color, Context, KeyCode};
 
 use crate::games::{self, GameSignal, RunningGame};
+use crate::records::RecordsStore;
 
 pub struct App {
+    records: RecordsStore,
     screen: Screen,
     selected_game: usize,
     last_frame: Instant,
@@ -18,6 +20,7 @@ enum Screen {
 impl App {
     pub fn new() -> Self {
         Self {
+            records: RecordsStore::load(),
             screen: Screen::Menu,
             selected_game: 0,
             last_frame: Instant::now(),
@@ -41,12 +44,16 @@ impl App {
             }
             Screen::Game(game) => {
                 if ui.key('g') {
+                    game.sync_records(&mut self.records);
                     self.screen = Screen::Menu;
                     return;
                 }
 
                 if game.frame(ui, delta) == GameSignal::ReturnToMenu {
+                    game.sync_records(&mut self.records);
                     self.screen = Screen::Menu;
+                } else {
+                    game.sync_records(&mut self.records);
                 }
             }
         }
@@ -72,7 +79,7 @@ impl App {
 
         if ui.key_code(KeyCode::Enter) || ui.key(' ') {
             let selected = games::catalog()[self.selected_game].id;
-            self.screen = Screen::Game(RunningGame::new(selected));
+            self.screen = Screen::Game(RunningGame::new(selected, self.records.records()));
             self.last_frame = Instant::now();
         }
     }

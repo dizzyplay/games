@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use slt::Context;
 
+use crate::records::{Records, RecordsStore};
+
 pub mod tetris;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,15 +38,21 @@ pub enum RunningGame {
 }
 
 impl RunningGame {
-    pub fn new(id: GameId) -> Self {
+    pub fn new(id: GameId, records: &Records) -> Self {
         match id {
-            GameId::Tetris => Self::Tetris(tetris::TetrisGame::new()),
+            GameId::Tetris => Self::Tetris(tetris::TetrisGame::new(records.tetris.high_score)),
         }
     }
 
     pub fn frame(&mut self, ui: &mut Context, delta: Duration) -> GameSignal {
         match self {
             Self::Tetris(game) => game.frame(ui, delta),
+        }
+    }
+
+    pub fn sync_records(&self, store: &mut RecordsStore) {
+        match self {
+            Self::Tetris(game) => store.update_tetris_high_score(game.high_score()),
         }
     }
 }

@@ -8,7 +8,7 @@ const BOARD_WIDTH: usize = 10;
 const BOARD_HEIGHT: usize = 20;
 const PREVIEW_SIZE: usize = 4;
 const CELL_WIDTH: u32 = 2;
-const SIDEBAR_WIDTH: u32 = 20;
+const SIDEBAR_WIDTH: u32 = 18;
 const GAME_WIDTH: u32 = BOARD_WIDTH as u32 * CELL_WIDTH + SIDEBAR_WIDTH + 7;
 const LINE_CLEAR_ANIMATION: Duration = Duration::from_millis(220);
 const SIMPLE_KICKS: [(i32, i32); 6] = [(0, 0), (0, -1), (-1, 0), (1, 0), (-2, 0), (2, 0)];
@@ -24,16 +24,18 @@ pub struct TetrisGame {
     gravity_accumulator: Duration,
     lock_pending: bool,
     clear_animation: Option<ClearAnimation>,
+    high_score: u32,
 }
 
 impl TetrisGame {
-    pub fn new() -> Self {
+    pub fn new(high_score: u32) -> Self {
         Self {
             game: Game::new(),
             phase: Phase::Playing,
             gravity_accumulator: Duration::ZERO,
             lock_pending: false,
             clear_animation: None,
+            high_score,
         }
     }
 
@@ -73,6 +75,11 @@ impl TetrisGame {
         self.gravity_accumulator = Duration::ZERO;
         self.lock_pending = false;
         self.clear_animation = None;
+        self.high_score = self.high_score.max(self.game.score);
+    }
+
+    pub fn high_score(&self) -> u32 {
+        self.high_score.max(self.game.score)
     }
 
     fn handle_input(&mut self, ui: &mut Context) {
@@ -182,14 +189,14 @@ impl TetrisGame {
             .col(|ui| {
                 ui.text("superlighttui tetris").bold().fg(Color::LightCyan);
                 ui.text("g game select  ·  r restart  ·  q quit").dim();
-                ui.text(" ");
+                render_phase_banner(ui, self.phase);
 
                 let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
                     let _ = ui.container().align_self(Align::Start).col(|ui| {
                         render_board(ui, &self.game, self.clear_animation.as_ref());
                     });
                     let _ = ui.container().align_self(Align::Start).col(|ui| {
-                        render_sidebar(ui, &self.game, self.phase);
+                        render_sidebar(ui, &self.game, self.phase, self.high_score());
                     });
                 });
             });
@@ -571,7 +578,7 @@ fn render_board(ui: &mut Context, game: &Game, clear_animation: Option<&ClearAni
         .filter(|animation| animation.flashes_on())
         .map(|animation| animation.rows.as_slice());
 
-    let _ = ui.bordered(Border::Single).title("Board").col(|ui| {
+    let _ = ui.bordered(Border::Double).col(|ui| {
         let _ = ui.container().gap(0).col(|ui| {
             for y in 0..BOARD_HEIGHT {
                 let _ = ui.container().gap(0).row(|ui| {
@@ -598,61 +605,69 @@ fn render_board(ui: &mut Context, game: &Game, clear_animation: Option<&ClearAni
     });
 }
 
-fn render_sidebar(ui: &mut Context, game: &Game, phase: Phase) {
+fn render_sidebar(ui: &mut Context, game: &Game, phase: Phase, high_score: u32) {
     let _ = ui.container().w(SIDEBAR_WIDTH).gap(1).col(|ui| {
-        let _ = ui
-            .bordered(Border::Rounded)
-            .title("Status")
-            .p(1)
-            .gap(1)
-            .col(|ui| {
-                let (label, color) = match phase {
-                    Phase::Playing => ("Playing", Color::LightGreen),
-                    Phase::Paused => ("Paused", Color::LightYellow),
-                    Phase::GameOver => ("Game Over", Color::LightRed),
-                };
-
-                ui.text(label).bold().fg(color);
-                if phase == Phase::GameOver {
-                    ui.text("Press r to start again.").dim();
-                }
-            });
-
-        let _ = ui
-            .bordered(Border::Rounded)
-            .title("Stats")
-            .p(1)
-            .gap(1)
-            .col(|ui| {
-                let _ = ui.stat("Score", &game.score.to_string());
-                let _ = ui.stat("Lines", &game.lines.to_string());
-                let _ = ui.stat("Level", &game.level.to_string());
-                let _ = ui.stat(
-                    "Speed",
-                    &format!("{} ms", game.gravity_interval().as_millis()),
-                );
-            });
-
         let _ = ui.bordered(Border::Rounded).title("Next").p(1).col(|ui| {
             render_next_piece(ui, game.next);
         });
 
         let _ = ui
             .bordered(Border::Rounded)
-            .title("Controls")
+            .title("Stats")
             .p(1)
             .gap(0)
             .col(|ui| {
-                ui.text("Left/Right : move").dim();
-                ui.text("Down       : soft drop").dim();
-                ui.text("Up or x    : rotate").dim();
-                ui.text("Space      : hard drop").dim();
-                ui.text("p          : pause").dim();
-                ui.text("r          : restart").dim();
-                ui.text("g          : game menu").dim();
-                ui.text("q          : quit").dim();
+                let _ = ui.row(|ui| {
+                    ui.text("Top Score").dim();
+                    ui.spacer();
+                    ui.text(high_score.to_string())
+                        .bold()
+                        .fg(Color::LightYellow);
+                });
+                let _ = ui.row(|ui| {
+                    ui.text("Score").dim();
+                    ui.spacer();
+                    ui.text(game.score.to_string()).bold();
+                });
+                let _ = ui.row(|ui| {
+                    ui.text("Lines").dim();
+                    ui.spacer();
+                    ui.text(game.lines.to_string()).bold();
+                });
+                let _ = ui.row(|ui| {
+                    ui.text("Level").dim();
+                    ui.spacer();
+                    ui.text(game.level.to_string()).bold();
+                });
             });
+
+        ui.separator();
+        ui.text("←→ move  ↓ drop").dim();
+        ui.text("↑/x rotate").dim();
+        ui.text("space hard drop").dim();
+        if phase == Phase::Paused {
+            ui.text("p resume").fg(Color::LightYellow);
+        } else if phase == Phase::GameOver {
+            ui.text("r restart").fg(Color::LightRed);
+        } else {
+            ui.text("p pause  g menu").dim();
+        }
+        ui.text("q quit").dim();
     });
+}
+
+fn render_phase_banner(ui: &mut Context, phase: Phase) {
+    match phase {
+        Phase::Playing => ui.text(" "),
+        Phase::Paused => ui
+            .text("Paused  ·  press p to resume")
+            .bold()
+            .fg(Color::LightYellow),
+        Phase::GameOver => ui
+            .text("Game Over  ·  press r to restart")
+            .bold()
+            .fg(Color::LightRed),
+    };
 }
 
 fn render_next_piece(ui: &mut Context, kind: TetrominoKind) {
@@ -856,6 +871,15 @@ mod tests {
     }
 
     #[test]
+    fn hard_drop_adds_cell_based_score() {
+        let mut game = Game::new();
+
+        game.hard_drop();
+
+        assert!(game.score > 0);
+    }
+
+    #[test]
     fn ghost_piece_stops_on_top_of_stack() {
         let mut game = Game::new();
         game.current = ActivePiece {
@@ -877,7 +901,7 @@ mod tests {
 
     #[test]
     fn grounded_piece_waits_before_locking() {
-        let mut tetris = TetrisGame::new();
+        let mut tetris = TetrisGame::new(0);
         tetris.game.current = ActivePiece {
             kind: TetrominoKind::O,
             rotation: 0,
@@ -896,7 +920,7 @@ mod tests {
 
     #[test]
     fn grounded_piece_locks_on_second_gravity_tick() {
-        let mut tetris = TetrisGame::new();
+        let mut tetris = TetrisGame::new(0);
         tetris.game.current = ActivePiece {
             kind: TetrominoKind::O,
             rotation: 0,
@@ -923,7 +947,7 @@ mod tests {
 
     #[test]
     fn hard_drop_spawns_next_piece_immediately() {
-        let mut tetris = TetrisGame::new();
+        let mut tetris = TetrisGame::new(0);
         tetris.game.current = ActivePiece {
             kind: TetrominoKind::I,
             rotation: 0,
