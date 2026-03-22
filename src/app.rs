@@ -43,7 +43,7 @@ impl App {
                 self.render_menu(ui);
             }
             Screen::Game(game) => {
-                if ui.key('g') {
+                if ui.key('z') {
                     game.sync_records(&mut self.records);
                     self.screen = Screen::Menu;
                     return;
