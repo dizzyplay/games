@@ -87,7 +87,8 @@ impl App {
                 .p(1)
                 .gap(1)
                 .col(|ui| {
-                    ui.text("Terminal too small. Resize to at least 52x20.").fg(Color::Yellow);
+                    ui.text("Terminal too small. Resize to at least 52x20.")
+                        .fg(Color::Yellow);
                     ui.text("Enter start");
                     ui.text("q quit");
                 });

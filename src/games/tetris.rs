@@ -1,15 +1,18 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use slt::{Border, Breakpoint, Color, Context, KeyCode};
+use slt::{Align, Border, Color, Context, KeyCode, Style};
 
 use super::GameSignal;
 
 const BOARD_WIDTH: usize = 10;
 const BOARD_HEIGHT: usize = 20;
 const PREVIEW_SIZE: usize = 4;
-const SIMPLE_KICKS: [i32; 5] = [0, -1, 1, -2, 2];
-const EMPTY_CELL: Color = Color::Indexed(236);
-const GHOST_CELL: Color = Color::Indexed(244);
+const CELL_WIDTH: u32 = 2;
+const SIDEBAR_WIDTH: u32 = 20;
+const GAME_WIDTH: u32 = BOARD_WIDTH as u32 * CELL_WIDTH + SIDEBAR_WIDTH + 7;
+const SIMPLE_KICKS: [(i32, i32); 6] = [(0, 0), (0, -1), (-1, 0), (1, 0), (-2, 0), (2, 0)];
+const EMPTY_CELL: Color = Color::Indexed(244);
+const GHOST_CELL: Color = Color::Indexed(240);
 
 type Board = [[Option<TetrominoKind>; BOARD_WIDTH]; BOARD_HEIGHT];
 
@@ -17,6 +20,7 @@ pub struct TetrisGame {
     game: Game,
     phase: Phase,
     gravity_accumulator: Duration,
+    lock_pending: bool,
 }
 
 impl TetrisGame {
@@ -25,6 +29,7 @@ impl TetrisGame {
             game: Game::new(),
             phase: Phase::Playing,
             gravity_accumulator: Duration::ZERO,
+            lock_pending: false,
         }
     }
 
@@ -60,20 +65,21 @@ impl TetrisGame {
         self.game = Game::new();
         self.phase = Phase::Playing;
         self.gravity_accumulator = Duration::ZERO;
+        self.lock_pending = false;
     }
 
     fn handle_input(&mut self, ui: &mut Context) {
         if ui.key('h') || ui.key_code(KeyCode::Left) {
-            self.game.try_move(-1, 0);
+            self.try_adjust_piece(|game| game.try_move(-1, 0));
         }
         if ui.key('l') || ui.key_code(KeyCode::Right) {
-            self.game.try_move(1, 0);
+            self.try_adjust_piece(|game| game.try_move(1, 0));
         }
         if ui.key('k') || ui.key('x') || ui.key_code(KeyCode::Up) {
-            self.game.try_rotate();
+            self.try_adjust_piece(Game::try_rotate);
         }
         if ui.key('j') || ui.key_code(KeyCode::Down) {
-            if !self.game.soft_drop() {
+            if !self.step_down(false) {
                 self.phase = Phase::GameOver;
             }
         }
@@ -82,6 +88,8 @@ impl TetrisGame {
                 self.phase = Phase::GameOver;
             }
             self.gravity_accumulator = Duration::ZERO;
+            self.lock_pending = false;
+            return;
         }
     }
 
@@ -91,7 +99,7 @@ impl TetrisGame {
 
         while self.gravity_accumulator >= interval {
             self.gravity_accumulator -= interval;
-            if !self.game.advance_gravity() {
+            if !self.step_down(true) {
                 self.phase = Phase::GameOver;
                 self.gravity_accumulator = Duration::ZERO;
                 break;
@@ -99,42 +107,47 @@ impl TetrisGame {
         }
     }
 
-    fn render(&self, ui: &mut Context) {
-        if ui.width() < 52 || ui.height() < 28 {
-            let _ = ui
-                .bordered(Border::Rounded)
-                .title("Tetris")
-                .p(1)
-                .gap(1)
-                .col(|ui| {
-                    ui.text("Terminal too small. Resize to at least 52x28.").fg(Color::Yellow);
-                    ui.text("g game select");
-                    ui.text("r restart");
-                    ui.text("q quit");
-                });
-            return;
+    fn try_adjust_piece(&mut self, action: impl FnOnce(&mut Game) -> bool) {
+        if action(&mut self.game) {
+            self.lock_pending = self.game.is_grounded();
         }
+    }
+
+    fn step_down(&mut self, by_gravity: bool) -> bool {
+        if self.game.advance_gravity(by_gravity) {
+            self.lock_pending = self.game.is_grounded();
+            true
+        } else if self.lock_pending {
+            self.lock_pending = false;
+            self.game.lock_and_spawn()
+        } else {
+            self.lock_pending = true;
+            true
+        }
+    }
+
+    fn render(&self, ui: &mut Context) {
+        let left = ui.width().saturating_sub(GAME_WIDTH) / 2;
 
         let _ = ui
             .bordered(Border::Rounded)
             .title("Tetris")
+            .w(GAME_WIDTH)
+            .ml(left)
             .p(1)
             .gap(1)
             .col(|ui| {
                 ui.text("superlighttui tetris").bold().fg(Color::LightCyan);
                 ui.text("g game select  ·  r restart  ·  q quit").dim();
 
-                if ui.breakpoint() == Breakpoint::Xs || ui.breakpoint() == Breakpoint::Sm {
-                    let _ = ui.container().gap(1).col(|ui| {
+                let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
+                    let _ = ui.container().align_self(Align::Start).col(|ui| {
                         render_board(ui, &self.game);
+                    });
+                    let _ = ui.container().align_self(Align::Start).col(|ui| {
                         render_sidebar(ui, &self.game, self.phase);
                     });
-                } else {
-                    let _ = ui.container().gap(2).row(|ui| {
-                        render_board(ui, &self.game);
-                        render_sidebar(ui, &self.game, self.phase);
-                    });
-                }
+                });
             });
     }
 }
@@ -202,23 +215,14 @@ impl Game {
 
     fn try_rotate(&mut self) -> bool {
         let rotated = self.current.rotated();
-        for kick in SIMPLE_KICKS {
-            let candidate = rotated.shifted(kick, 0);
+        for (kick_x, kick_y) in SIMPLE_KICKS {
+            let candidate = rotated.shifted(kick_x, kick_y);
             if !self.collides(candidate) {
                 self.current = candidate;
                 return true;
             }
         }
         false
-    }
-
-    fn soft_drop(&mut self) -> bool {
-        if self.try_move(0, 1) {
-            self.score = self.score.saturating_add(1);
-            true
-        } else {
-            self.lock_and_spawn()
-        }
     }
 
     fn hard_drop(&mut self) -> bool {
@@ -230,11 +234,14 @@ impl Game {
         self.lock_and_spawn()
     }
 
-    fn advance_gravity(&mut self) -> bool {
+    fn advance_gravity(&mut self, by_gravity: bool) -> bool {
         if self.try_move(0, 1) {
+            if !by_gravity {
+                self.score = self.score.saturating_add(1);
+            }
             true
         } else {
-            self.lock_and_spawn()
+            false
         }
     }
 
@@ -314,6 +321,10 @@ impl Game {
         }
         ghost
     }
+
+    fn is_grounded(&self) -> bool {
+        self.collides(self.current.shifted(0, 1))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -336,7 +347,7 @@ impl ActivePiece {
         Self {
             kind,
             rotation: 0,
-            x: 3,
+            x: spawn_column(),
             y: 0,
         }
     }
@@ -350,8 +361,14 @@ impl ActivePiece {
     }
 
     fn rotated(self) -> Self {
+        let next_rotation = (self.rotation + 1) % 4;
+        let (old_min_x, old_min_y) = self.kind.min_offset(self.rotation);
+        let (new_min_x, new_min_y) = self.kind.min_offset(next_rotation);
+
         Self {
-            rotation: (self.rotation + 1) % 4,
+            rotation: next_rotation,
+            x: self.x + old_min_x - new_min_x,
+            y: self.y + old_min_y - new_min_y,
             ..self
         }
     }
@@ -428,6 +445,14 @@ impl TetrominoKind {
             },
         }
     }
+
+    fn min_offset(self, rotation: usize) -> (i32, i32) {
+        self.offsets(rotation)
+            .into_iter()
+            .fold((i32::MAX, i32::MAX), |(min_x, min_y), (x, y)| {
+                (min_x.min(x), min_y.min(y))
+            })
+    }
 }
 
 struct BagRandomizer {
@@ -479,37 +504,33 @@ impl BagRandomizer {
 fn render_board(ui: &mut Context, game: &Game) {
     let ghost = game.ghost_piece();
 
-    let _ = ui
-        .bordered(Border::Rounded)
-        .title("Board")
-        .p(1)
-        .col(|ui| {
-            let _ = ui.container().gap(0).col(|ui| {
-                for y in 0..BOARD_HEIGHT {
-                    let _ = ui.container().gap(0).row(|ui| {
-                        for x in 0..BOARD_WIDTH {
-                            let render_cell = if let Some(kind) = game.cell_at(x, y) {
-                                RenderCell::Solid(kind)
-                            } else if ghost
-                                .cells()
-                                .into_iter()
-                                .any(|(cell_x, cell_y)| cell_x == x as i32 && cell_y == y as i32)
-                            {
-                                RenderCell::Ghost
-                            } else {
-                                RenderCell::Empty
-                            };
+    let _ = ui.bordered(Border::Single).title("Board").col(|ui| {
+        let _ = ui.container().gap(0).col(|ui| {
+            for y in 0..BOARD_HEIGHT {
+                let _ = ui.container().gap(0).row(|ui| {
+                    for x in 0..BOARD_WIDTH {
+                        let render_cell = if let Some(kind) = game.cell_at(x, y) {
+                            RenderCell::Solid(kind)
+                        } else if ghost
+                            .cells()
+                            .into_iter()
+                            .any(|(cell_x, cell_y)| cell_x == x as i32 && cell_y == y as i32)
+                        {
+                            RenderCell::Ghost
+                        } else {
+                            RenderCell::Empty
+                        };
 
-                            draw_cell(ui, render_cell);
-                        }
-                    });
-                }
-            });
+                        draw_cell(ui, render_cell);
+                    }
+                });
+            }
         });
+    });
 }
 
 fn render_sidebar(ui: &mut Context, game: &Game, phase: Phase) {
-    let _ = ui.container().w(24).gap(1).col(|ui| {
+    let _ = ui.container().w(SIDEBAR_WIDTH).gap(1).col(|ui| {
         let _ = ui
             .bordered(Border::Rounded)
             .title("Status")
@@ -537,16 +558,15 @@ fn render_sidebar(ui: &mut Context, game: &Game, phase: Phase) {
                 let _ = ui.stat("Score", &game.score.to_string());
                 let _ = ui.stat("Lines", &game.lines.to_string());
                 let _ = ui.stat("Level", &game.level.to_string());
-                let _ = ui.stat("Speed", &format!("{} ms", game.gravity_interval().as_millis()));
+                let _ = ui.stat(
+                    "Speed",
+                    &format!("{} ms", game.gravity_interval().as_millis()),
+                );
             });
 
-        let _ = ui
-            .bordered(Border::Rounded)
-            .title("Next")
-            .p(1)
-            .col(|ui| {
-                render_next_piece(ui, game.next);
-            });
+        let _ = ui.bordered(Border::Rounded).title("Next").p(1).col(|ui| {
+            render_next_piece(ui, game.next);
+        });
 
         let _ = ui
             .bordered(Border::Rounded)
@@ -595,12 +615,15 @@ fn render_next_piece(ui: &mut Context, kind: TetrominoKind) {
 }
 
 fn draw_cell(ui: &mut Context, cell: RenderCell) {
-    let color = match cell {
-        RenderCell::Empty => EMPTY_CELL,
-        RenderCell::Ghost => GHOST_CELL,
-        RenderCell::Solid(kind) => kind.color(),
+    match cell {
+        RenderCell::Empty => ui.styled("· ", Style::new().fg(EMPTY_CELL)),
+        RenderCell::Ghost => ui.styled("░░", Style::new().fg(GHOST_CELL)),
+        RenderCell::Solid(kind) => ui.styled("██", Style::new().fg(kind.color())),
     };
-    ui.text("  ").bg(color);
+}
+
+const fn spawn_column() -> i32 {
+    BOARD_WIDTH.saturating_sub(PREVIEW_SIZE) as i32 / 2
 }
 
 fn empty_board() -> Board {
@@ -663,27 +686,87 @@ mod tests {
         game.current = ActivePiece {
             kind: TetrominoKind::L,
             rotation: 0,
-            x: BOARD_WIDTH as i32 - 3,
+            x: BOARD_WIDTH.saturating_sub(3) as i32,
             y: 0,
         };
 
         assert!(game.try_rotate());
-        assert!(game.current.x <= BOARD_WIDTH as i32 - 3);
+        assert!(game.current.x <= BOARD_WIDTH.saturating_sub(3) as i32);
+    }
+
+    #[test]
+    fn rotate_prefers_vertical_kick_while_keeping_left_edge_stable() {
+        let mut game = Game::new();
+        game.current = ActivePiece {
+            kind: TetrominoKind::T,
+            rotation: 0,
+            x: spawn_column(),
+            y: BOARD_HEIGHT.saturating_sub(2) as i32,
+        };
+        let original_left_edge = game
+            .current
+            .cells()
+            .into_iter()
+            .map(|(x, _)| x)
+            .min()
+            .unwrap();
+
+        assert!(game.try_rotate());
+        let rotated_left_edge = game
+            .current
+            .cells()
+            .into_iter()
+            .map(|(x, _)| x)
+            .min()
+            .unwrap();
+
+        assert_eq!(rotated_left_edge, original_left_edge);
+        assert_eq!(game.current.y, BOARD_HEIGHT.saturating_sub(3) as i32);
+    }
+
+    #[test]
+    fn free_rotation_keeps_piece_left_edge_stable() {
+        let mut game = Game::new();
+        game.current = ActivePiece {
+            kind: TetrominoKind::Z,
+            rotation: 0,
+            x: spawn_column(),
+            y: 5,
+        };
+        let original_left_edge = game
+            .current
+            .cells()
+            .into_iter()
+            .map(|(x, _)| x)
+            .min()
+            .unwrap();
+
+        assert!(game.try_rotate());
+
+        let rotated_left_edge = game
+            .current
+            .cells()
+            .into_iter()
+            .map(|(x, _)| x)
+            .min()
+            .unwrap();
+        assert_eq!(rotated_left_edge, original_left_edge);
     }
 
     #[test]
     fn spawn_failure_returns_game_over() {
         let mut game = Game::new();
+        let spawn_x = spawn_column() as usize;
         for y in 0..4 {
-            for x in 3..7 {
+            for x in spawn_x..(spawn_x + PREVIEW_SIZE).min(BOARD_WIDTH) {
                 game.board[y][x] = Some(TetrominoKind::T);
             }
         }
         game.current = ActivePiece {
             kind: TetrominoKind::O,
             rotation: 0,
-            x: 3,
-            y: 18,
+            x: spawn_column(),
+            y: BOARD_HEIGHT.saturating_sub(2) as i32,
         };
 
         assert!(!game.lock_and_spawn());
@@ -706,14 +789,89 @@ mod tests {
         game.current = ActivePiece {
             kind: TetrominoKind::O,
             rotation: 0,
-            x: 3,
+            x: spawn_column(),
             y: 0,
         };
-        game.board[10][4] = Some(TetrominoKind::I);
-        game.board[10][5] = Some(TetrominoKind::I);
+        let stack_y = BOARD_HEIGHT / 4;
+        let left_x = (spawn_column() + 1) as usize;
+        let right_x = (spawn_column() + 2) as usize;
+        game.board[stack_y][left_x] = Some(TetrominoKind::I);
+        game.board[stack_y][right_x] = Some(TetrominoKind::I);
 
         let ghost = game.ghost_piece();
 
-        assert_eq!(ghost.y, 8);
+        assert_eq!(ghost.y, stack_y as i32 - 2);
+    }
+
+    #[test]
+    fn grounded_piece_waits_before_locking() {
+        let mut tetris = TetrisGame::new();
+        tetris.game.current = ActivePiece {
+            kind: TetrominoKind::O,
+            rotation: 0,
+            x: spawn_column(),
+            y: BOARD_HEIGHT.saturating_sub(2) as i32,
+        };
+        let interval = tetris.game.gravity_interval();
+
+        tetris.advance_gravity(interval);
+
+        assert_eq!(tetris.phase, Phase::Playing);
+        assert_eq!(tetris.game.current.kind, TetrominoKind::O);
+        assert!(tetris.game.board.iter().flatten().all(Option::is_none));
+        assert!(tetris.lock_pending);
+    }
+
+    #[test]
+    fn grounded_piece_locks_on_second_gravity_tick() {
+        let mut tetris = TetrisGame::new();
+        tetris.game.current = ActivePiece {
+            kind: TetrominoKind::O,
+            rotation: 0,
+            x: spawn_column(),
+            y: BOARD_HEIGHT.saturating_sub(2) as i32,
+        };
+        let interval = tetris.game.gravity_interval();
+
+        tetris.advance_gravity(interval);
+        tetris.advance_gravity(interval);
+
+        let left_x = (spawn_column() + 1) as usize;
+        let right_x = (spawn_column() + 2) as usize;
+        assert_eq!(
+            tetris.game.board[BOARD_HEIGHT - 1][left_x],
+            Some(TetrominoKind::O)
+        );
+        assert_eq!(
+            tetris.game.board[BOARD_HEIGHT - 1][right_x],
+            Some(TetrominoKind::O)
+        );
+        assert!(!tetris.lock_pending);
+    }
+
+    #[test]
+    fn hard_drop_spawns_next_piece_immediately() {
+        let mut tetris = TetrisGame::new();
+        tetris.game.current = ActivePiece {
+            kind: TetrominoKind::I,
+            rotation: 0,
+            x: spawn_column(),
+            y: 0,
+        };
+        let starting_next = tetris.game.next;
+
+        assert!(tetris.game.hard_drop());
+
+        assert_eq!(tetris.game.current.kind, starting_next);
+        assert_ne!(tetris.game.next, starting_next);
+        assert!(tetris.game.board.iter().flatten().any(Option::is_some));
+    }
+
+    #[test]
+    fn spawn_position_tracks_board_width() {
+        let piece = ActivePiece::spawn(TetrominoKind::I);
+
+        assert_eq!(piece.x, spawn_column());
+        assert_eq!(piece.x, BOARD_WIDTH.saturating_sub(PREVIEW_SIZE) as i32 / 2);
     }
 }
