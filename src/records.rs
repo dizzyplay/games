@@ -10,12 +10,19 @@ const RECORDS_FILE_NAME: &str = "records.toml";
 #[serde(default)]
 pub struct Records {
     pub tetris: TetrisRecords,
+    pub minesweeper: MinesweeperRecords,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TetrisRecords {
     pub high_score: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MinesweeperRecords {
+    pub best_time_centis: Option<u64>,
 }
 
 pub struct RecordsStore {
@@ -47,6 +54,24 @@ impl RecordsStore {
         let _ = self.save();
     }
 
+    pub fn update_minesweeper_best_time(&mut self, best_time_centis: Option<u64>) {
+        let Some(best_time_centis) = best_time_centis else {
+            return;
+        };
+
+        if self
+            .records
+            .minesweeper
+            .best_time_centis
+            .is_some_and(|current| current <= best_time_centis)
+        {
+            return;
+        }
+
+        self.records.minesweeper.best_time_centis = Some(best_time_centis);
+        let _ = self.save();
+    }
+
     fn save(&self) -> io::Result<()> {
         let contents = toml::to_string_pretty(&self.records)
             .map_err(|error| io::Error::other(error.to_string()))?;
@@ -63,17 +88,34 @@ mod tests {
         let records: Records = toml::from_str("").unwrap();
 
         assert_eq!(records.tetris.high_score, 0);
+        assert_eq!(records.minesweeper.best_time_centis, None);
     }
 
     #[test]
     fn serialize_tetris_high_score_to_toml() {
         let records = Records {
             tetris: TetrisRecords { high_score: 1200 },
+            minesweeper: MinesweeperRecords::default(),
         };
 
         let toml = toml::to_string(&records).unwrap();
 
         assert!(toml.contains("[tetris]"));
         assert!(toml.contains("high_score = 1200"));
+    }
+
+    #[test]
+    fn serialize_minesweeper_best_time_to_toml() {
+        let records = Records {
+            tetris: TetrisRecords::default(),
+            minesweeper: MinesweeperRecords {
+                best_time_centis: Some(987),
+            },
+        };
+
+        let toml = toml::to_string(&records).unwrap();
+
+        assert!(toml.contains("[minesweeper]"));
+        assert!(toml.contains("best_time_centis = 987"));
     }
 }
