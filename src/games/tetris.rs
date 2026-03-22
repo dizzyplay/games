@@ -10,9 +10,11 @@ const PREVIEW_SIZE: usize = 4;
 const CELL_WIDTH: u32 = 2;
 const SIDEBAR_WIDTH: u32 = 20;
 const GAME_WIDTH: u32 = BOARD_WIDTH as u32 * CELL_WIDTH + SIDEBAR_WIDTH + 7;
+const LINE_CLEAR_ANIMATION: Duration = Duration::from_millis(220);
 const SIMPLE_KICKS: [(i32, i32); 6] = [(0, 0), (0, -1), (-1, 0), (1, 0), (-2, 0), (2, 0)];
 const EMPTY_CELL: Color = Color::Indexed(244);
 const GHOST_CELL: Color = Color::Indexed(240);
+const CLEAR_FLASH_CELL: Color = Color::LightYellow;
 
 type Board = [[Option<TetrominoKind>; BOARD_WIDTH]; BOARD_HEIGHT];
 
@@ -21,6 +23,7 @@ pub struct TetrisGame {
     phase: Phase,
     gravity_accumulator: Duration,
     lock_pending: bool,
+    clear_animation: Option<ClearAnimation>,
 }
 
 impl TetrisGame {
@@ -30,6 +33,7 @@ impl TetrisGame {
             phase: Phase::Playing,
             gravity_accumulator: Duration::ZERO,
             lock_pending: false,
+            clear_animation: None,
         }
     }
 
@@ -53,8 +57,10 @@ impl TetrisGame {
         }
 
         if self.phase == Phase::Playing {
-            self.handle_input(ui);
             self.advance_gravity(delta);
+            if self.clear_animation.is_none() {
+                self.handle_input(ui);
+            }
         }
 
         self.render(ui);
@@ -66,6 +72,7 @@ impl TetrisGame {
         self.phase = Phase::Playing;
         self.gravity_accumulator = Duration::ZERO;
         self.lock_pending = false;
+        self.clear_animation = None;
     }
 
     fn handle_input(&mut self, ui: &mut Context) {
@@ -84,7 +91,8 @@ impl TetrisGame {
             }
         }
         if ui.key(' ') {
-            if !self.game.hard_drop() {
+            self.game.hard_drop();
+            if !self.resolve_lock() {
                 self.phase = Phase::GameOver;
             }
             self.gravity_accumulator = Duration::ZERO;
@@ -94,6 +102,11 @@ impl TetrisGame {
     }
 
     fn advance_gravity(&mut self, delta: Duration) {
+        if !self.advance_clear_animation(delta) {
+            self.phase = Phase::GameOver;
+            return;
+        }
+
         self.gravity_accumulator += delta;
         let interval = self.game.gravity_interval();
 
@@ -119,11 +132,41 @@ impl TetrisGame {
             true
         } else if self.lock_pending {
             self.lock_pending = false;
-            self.game.lock_and_spawn()
+            self.resolve_lock()
         } else {
             self.lock_pending = true;
             true
         }
+    }
+
+    fn resolve_lock(&mut self) -> bool {
+        self.game.lock_piece();
+        let rows = self.game.full_rows();
+
+        if rows.is_empty() {
+            self.game.spawn_next_piece()
+        } else {
+            self.clear_animation = Some(ClearAnimation::new(rows));
+            true
+        }
+    }
+
+    fn advance_clear_animation(&mut self, delta: Duration) -> bool {
+        let Some(animation) = &mut self.clear_animation else {
+            return true;
+        };
+
+        animation.elapsed += delta;
+        if animation.elapsed < LINE_CLEAR_ANIMATION {
+            return true;
+        }
+
+        let rows = animation.rows.clone();
+        let cleared = rows.len() as u32;
+        self.game.clear_rows(&rows);
+        self.game.apply_score(cleared);
+        self.clear_animation = None;
+        self.game.spawn_next_piece()
     }
 
     fn render(&self, ui: &mut Context) {
@@ -139,10 +182,11 @@ impl TetrisGame {
             .col(|ui| {
                 ui.text("superlighttui tetris").bold().fg(Color::LightCyan);
                 ui.text("g game select  ·  r restart  ·  q quit").dim();
+                ui.text(" ");
 
                 let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
                     let _ = ui.container().align_self(Align::Start).col(|ui| {
-                        render_board(ui, &self.game);
+                        render_board(ui, &self.game, self.clear_animation.as_ref());
                     });
                     let _ = ui.container().align_self(Align::Start).col(|ui| {
                         render_sidebar(ui, &self.game, self.phase);
@@ -231,7 +275,7 @@ impl Game {
             dropped_rows = dropped_rows.saturating_add(1);
         }
         self.score = self.score.saturating_add(dropped_rows.saturating_mul(2));
-        self.lock_and_spawn()
+        true
     }
 
     fn advance_gravity(&mut self, by_gravity: bool) -> bool {
@@ -245,38 +289,39 @@ impl Game {
         }
     }
 
-    fn lock_and_spawn(&mut self) -> bool {
+    fn lock_piece(&mut self) {
         for (x, y) in self.current.cells() {
             if y >= 0 && y < BOARD_HEIGHT as i32 && x >= 0 && x < BOARD_WIDTH as i32 {
                 self.board[y as usize][x as usize] = Some(self.current.kind);
             }
         }
+    }
 
-        let cleared = self.clear_lines();
-        self.apply_score(cleared);
-
+    fn spawn_next_piece(&mut self) -> bool {
         self.current = ActivePiece::spawn(self.next);
         self.next = self.randomizer.next();
 
         !self.collides(self.current)
     }
 
-    fn clear_lines(&mut self) -> u32 {
+    fn full_rows(&self) -> Vec<usize> {
+        (0..BOARD_HEIGHT)
+            .filter(|&y| self.board[y].iter().all(Option::is_some))
+            .collect()
+    }
+
+    fn clear_rows(&mut self, rows: &[usize]) {
         let mut next_board = empty_board();
         let mut write_y = BOARD_HEIGHT;
-        let mut cleared = 0_u32;
 
         for y in (0..BOARD_HEIGHT).rev() {
-            if self.board[y].iter().all(Option::is_some) {
-                cleared = cleared.saturating_add(1);
-            } else {
+            if !rows.contains(&y) {
                 write_y -= 1;
                 next_board[write_y] = self.board[y];
             }
         }
 
         self.board = next_board;
-        cleared
     }
 
     fn apply_score(&mut self, cleared: u32) {
@@ -327,10 +372,29 @@ impl Game {
     }
 }
 
+struct ClearAnimation {
+    rows: Vec<usize>,
+    elapsed: Duration,
+}
+
+impl ClearAnimation {
+    fn new(rows: Vec<usize>) -> Self {
+        Self {
+            rows,
+            elapsed: Duration::ZERO,
+        }
+    }
+
+    fn flashes_on(&self) -> bool {
+        (self.elapsed.as_millis() / 55).is_multiple_of(2)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RenderCell {
     Empty,
     Ghost,
+    ClearFlash,
     Solid(TetrominoKind),
 }
 
@@ -501,15 +565,20 @@ impl BagRandomizer {
     }
 }
 
-fn render_board(ui: &mut Context, game: &Game) {
+fn render_board(ui: &mut Context, game: &Game, clear_animation: Option<&ClearAnimation>) {
     let ghost = game.ghost_piece();
+    let flashing_rows = clear_animation
+        .filter(|animation| animation.flashes_on())
+        .map(|animation| animation.rows.as_slice());
 
     let _ = ui.bordered(Border::Single).title("Board").col(|ui| {
         let _ = ui.container().gap(0).col(|ui| {
             for y in 0..BOARD_HEIGHT {
                 let _ = ui.container().gap(0).row(|ui| {
                     for x in 0..BOARD_WIDTH {
-                        let render_cell = if let Some(kind) = game.cell_at(x, y) {
+                        let render_cell = if flashing_rows.is_some_and(|rows| rows.contains(&y)) {
+                            RenderCell::ClearFlash
+                        } else if let Some(kind) = game.cell_at(x, y) {
                             RenderCell::Solid(kind)
                         } else if ghost
                             .cells()
@@ -618,6 +687,7 @@ fn draw_cell(ui: &mut Context, cell: RenderCell) {
     match cell {
         RenderCell::Empty => ui.styled("· ", Style::new().fg(EMPTY_CELL)),
         RenderCell::Ghost => ui.styled("░░", Style::new().fg(GHOST_CELL)),
+        RenderCell::ClearFlash => ui.styled("██", Style::new().fg(CLEAR_FLASH_CELL)),
         RenderCell::Solid(kind) => ui.styled("██", Style::new().fg(kind.color())),
     };
 }
@@ -659,10 +729,11 @@ mod tests {
         let mut game = Game::new();
         game.board[BOARD_HEIGHT - 1] = [Some(TetrominoKind::I); BOARD_WIDTH];
         game.board[BOARD_HEIGHT - 2][0] = Some(TetrominoKind::O);
+        let full_rows = game.full_rows();
 
-        let cleared = game.clear_lines();
+        game.clear_rows(&full_rows);
 
-        assert_eq!(cleared, 1);
+        assert_eq!(full_rows, vec![BOARD_HEIGHT - 1]);
         assert_eq!(game.board[BOARD_HEIGHT - 1][0], Some(TetrominoKind::O));
         assert!(game.board[0].iter().all(Option::is_none));
     }
@@ -768,8 +839,9 @@ mod tests {
             x: spawn_column(),
             y: BOARD_HEIGHT.saturating_sub(2) as i32,
         };
+        game.lock_piece();
 
-        assert!(!game.lock_and_spawn());
+        assert!(!game.spawn_next_piece());
     }
 
     #[test]
@@ -860,7 +932,8 @@ mod tests {
         };
         let starting_next = tetris.game.next;
 
-        assert!(tetris.game.hard_drop());
+        tetris.game.hard_drop();
+        assert!(tetris.resolve_lock());
 
         assert_eq!(tetris.game.current.kind, starting_next);
         assert_ne!(tetris.game.next, starting_next);
