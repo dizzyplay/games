@@ -187,7 +187,7 @@ impl TetrisGame {
             .p(1)
             .gap(1)
             .col(|ui| {
-                ui.text("superlighttui tetris").bold().fg(Color::LightCyan);
+                ui.text("tetris").bold().fg(Color::LightCyan);
                 ui.text("g game select  ·  r restart  ·  q quit").dim();
                 render_phase_banner(ui, self.phase);
 
