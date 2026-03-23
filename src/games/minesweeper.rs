@@ -331,10 +331,6 @@ impl Game {
         SAFE_CELL_COUNT - self.revealed_safe_cells
     }
 
-    fn mines_left(&self) -> i32 {
-        MINE_COUNT as i32 - self.flag_count as i32
-    }
-
     #[cfg(debug_assertions)]
     fn force_win(&mut self) {
         if !self.mines_armed {
@@ -502,13 +498,6 @@ fn render_sidebar(ui: &mut Context, game: &MinesweeperGame, theme: Theme) {
                             ui.text("--:--.--").fg(theme.surface_text);
                         }
                     };
-                });
-                let _ = ui.row(|ui| {
-                    ui.text("Mines Left").fg(theme.surface_text);
-                    ui.spacer();
-                    ui.text(game.game.mines_left().to_string())
-                        .bold()
-                        .fg(theme.primary);
                 });
                 let _ = ui.row(|ui| {
                     ui.text("Safe Left").fg(theme.surface_text);
