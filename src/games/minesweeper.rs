@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use slt::{Align, Border, Color, Context, KeyCode, Style, Theme};
+use slt::{Align, Border, Color, Context, Justify, KeyCode, Style, Theme};
 
 use super::GameSignal;
 
@@ -115,6 +115,7 @@ impl MinesweeperGame {
 
     fn render(&self, ui: &mut Context) {
         let theme = *ui.theme();
+        let height = ui.height() as u32;
 
         if ui.width() < MIN_WIDTH || ui.height() < MIN_HEIGHT {
             let _ = ui
@@ -138,24 +139,32 @@ impl MinesweeperGame {
 
         let left = ui.width().saturating_sub(GAME_WIDTH) / 2;
 
-        let _ = ui
-            .bordered(Border::Rounded)
-            .title("Minesweeper")
-            .w(GAME_WIDTH)
-            .ml(left)
-            .col(|ui| {
-                ui.text("g game select  ·  r restart  ·  q quit").dim();
-                render_phase_banner(ui, self.phase);
+        let _ = ui.container().h(height).justify(Justify::Center).col(|ui| {
+            let _ = ui
+                .bordered(Border::Rounded)
+                .title("Minesweeper")
+                .w(GAME_WIDTH)
+                .ml(left)
+                .col(|ui| {
+                    ui.text("g game select  ·  r restart  ·  q quit").dim();
+                    render_phase_banner(ui, self.phase);
 
-                let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
-                    let _ = ui.container().align_self(Align::Start).col(|ui| {
-                        render_board(ui, &self.game, self.phase, theme, self.celebration_elapsed);
-                    });
-                    let _ = ui.container().align_self(Align::Start).col(|ui| {
-                        render_sidebar(ui, self, theme);
+                    let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
+                        let _ = ui.container().align_self(Align::Start).col(|ui| {
+                            render_board(
+                                ui,
+                                &self.game,
+                                self.phase,
+                                theme,
+                                self.celebration_elapsed,
+                            );
+                        });
+                        let _ = ui.container().align_self(Align::Start).col(|ui| {
+                            render_sidebar(ui, self, theme);
+                        });
                     });
                 });
-            });
+        });
     }
 }
 
