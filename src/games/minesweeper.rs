@@ -528,13 +528,14 @@ fn render_sidebar(ui: &mut Context, game: &MinesweeperGame, theme: Theme) {
             .p(1)
             .gap(0)
             .col(|ui| {
-                ui.text("30x30 field").bold().fg(theme.surface_text);
-                ui.text("112 mines").bold().fg(theme.surface_text);
-                ui.separator_colored(theme.border);
-                ui.text("First reveal is always safe.")
+                ui.text(format!("{BOARD_WIDTH}x{BOARD_HEIGHT} field"))
+                    .bold()
+                    .fg(theme.surface_text);
+                ui.text(format!("{MINE_COUNT} mines"))
+                    .bold()
                     .fg(theme.surface_text);
                 match game.phase {
-                    Phase::Playing => ui.text("Clear every safe tile.").fg(theme.primary),
+                    Phase::Playing => ui.text("").fg(theme.primary),
                     Phase::Won => ui.text("Board cleared.").fg(theme.success),
                     Phase::Lost => ui.text("Mine triggered.").fg(theme.error),
                 };
