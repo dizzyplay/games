@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use slt::{Align, Border, Color, Context, Justify, KeyCode, Style};
+use slt::{Align, Border, Color, Context, Justify, KeyCode, Style, Theme};
 
 use super::GameSignal;
 
@@ -9,7 +9,10 @@ const BOARD_HEIGHT: usize = 20;
 const PREVIEW_SIZE: usize = 4;
 const CELL_WIDTH: u32 = 2;
 const SIDEBAR_WIDTH: u32 = 23;
+const SIDEBAR_TEXT_WIDTH: usize = 19;
 const GAME_WIDTH: u32 = BOARD_WIDTH as u32 * CELL_WIDTH + SIDEBAR_WIDTH + 7;
+const MIN_WIDTH: u32 = GAME_WIDTH + 7;
+const MIN_HEIGHT: u32 = BOARD_HEIGHT as u32 + 6;
 const LINE_CLEAR_ANIMATION: Duration = Duration::from_millis(220);
 const SIMPLE_KICKS: [(i32, i32); 6] = [(0, 0), (0, -1), (-1, 0), (1, 0), (-2, 0), (2, 0)];
 const EMPTY_CELL: Color = Color::Indexed(244);
@@ -177,8 +180,29 @@ impl TetrisGame {
     }
 
     fn render(&self, ui: &mut Context) {
+        let theme = *ui.theme();
         let left = ui.width().saturating_sub(GAME_WIDTH) / 2;
         let height = ui.height() as u32;
+
+        if ui.width() < MIN_WIDTH || ui.height() < MIN_HEIGHT {
+            let _ = ui
+                .bordered(Border::Rounded)
+                .title("Tetris")
+                .p(1)
+                .gap(1)
+                .col(|ui| {
+                    ui.text(format!(
+                        "Terminal too small. Resize to at least {}x{}.",
+                        MIN_WIDTH, MIN_HEIGHT
+                    ))
+                    .fg(theme.warning);
+                    ui.text("Score, lines, and level are clipped otherwise.")
+                        .fg(theme.text);
+                    ui.text("g game select").fg(theme.text_dim);
+                    ui.text("q quit").fg(theme.text_dim);
+                });
+            return;
+        }
 
         let _ = ui.container().h(height).justify(Justify::Center).col(|ui| {
             let _ = ui
@@ -187,15 +211,16 @@ impl TetrisGame {
                 .w(GAME_WIDTH)
                 .ml(left)
                 .col(|ui| {
-                    ui.text("g game select  ·  r restart  ·  q quit").dim();
-                    render_phase_banner(ui, self.phase);
+                    ui.text("g game select  ·  r restart  ·  q quit")
+                        .fg(theme.text_dim);
+                    render_phase_banner(ui, self.phase, theme);
 
                     let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
                         let _ = ui.container().align_self(Align::Start).col(|ui| {
                             render_board(ui, &self.game, self.clear_animation.as_ref());
                         });
                         let _ = ui.container().align_self(Align::Start).col(|ui| {
-                            render_sidebar(ui, &self.game, self.phase, self.high_score());
+                            render_sidebar(ui, &self.game, self.phase, self.high_score(), theme);
                         });
                     });
                 });
@@ -605,68 +630,70 @@ fn render_board(ui: &mut Context, game: &Game, clear_animation: Option<&ClearAni
     });
 }
 
-fn render_sidebar(ui: &mut Context, game: &Game, phase: Phase, high_score: u32) {
+fn render_sidebar(ui: &mut Context, game: &Game, phase: Phase, high_score: u32, theme: Theme) {
     let _ = ui.container().w(SIDEBAR_WIDTH).gap(1).col(|ui| {
-        let _ = ui.bordered(Border::Rounded).title("Next").p(1).col(|ui| {
-            render_next_piece(ui, game.next);
-        });
+        let _ = ui
+            .bordered(Border::Rounded)
+            .title("Next")
+            .w(SIDEBAR_WIDTH)
+            .p(1)
+            .col(|ui| {
+                render_next_piece(ui, game.next);
+            });
 
         let _ = ui
             .bordered(Border::Rounded)
             .title("Stats")
+            .w(SIDEBAR_WIDTH)
             .p(1)
             .gap(0)
             .col(|ui| {
-                let _ = ui.row(|ui| {
-                    ui.text("Top Score").dim();
-                    ui.spacer();
-                    ui.text(high_score.to_string())
-                        .bold()
-                        .fg(Color::LightYellow);
-                });
-                let _ = ui.row(|ui| {
-                    ui.text("Score").dim();
-                    ui.spacer();
-                    ui.text(game.score.to_string()).bold();
-                });
-                let _ = ui.row(|ui| {
-                    ui.text("Lines").dim();
-                    ui.spacer();
-                    ui.text(game.lines.to_string()).bold();
-                });
-                let _ = ui.row(|ui| {
-                    ui.text("Level").dim();
-                    ui.spacer();
-                    ui.text(game.level.to_string()).bold();
-                });
+                ui.text(format_stat_line("Top Score", high_score))
+                    .bold()
+                    .fg(theme.warning);
+                ui.text(format_stat_line("Score", game.score))
+                    .bold()
+                    .fg(theme.primary);
+                ui.text(format_stat_line("Lines", game.lines))
+                    .bold()
+                    .fg(theme.primary);
+                ui.text(format_stat_line("Level", game.level))
+                    .bold()
+                    .fg(theme.primary);
             });
 
         let _ = ui.container().title("control").gap(0).col(|ui| {
-            ui.text("h j k l - move ").dim();
-            ui.text("space - drop").dim();
+            ui.text("h j k l - move ").fg(theme.text_dim);
+            ui.text("space - drop").fg(theme.text_dim);
             if phase == Phase::Paused {
-                ui.text("p resume").fg(Color::LightYellow);
+                ui.text("p resume").fg(theme.warning);
             } else if phase == Phase::GameOver {
-                ui.text("r restart").fg(Color::LightRed);
+                ui.text("r restart").fg(theme.error);
             } else {
-                ui.text("p pause  g menu").dim();
+                ui.text("p pause  g menu").fg(theme.text_dim);
             }
-            ui.text("q quit").dim();
+            ui.text("q quit").fg(theme.text_dim);
         });
     });
 }
 
-fn render_phase_banner(ui: &mut Context, phase: Phase) {
+fn format_stat_line(label: &str, value: u32) -> String {
+    let value = value.to_string();
+    let padding = SIDEBAR_TEXT_WIDTH.saturating_sub(label.len() + value.len());
+    format!("{label}{}{value}", " ".repeat(padding))
+}
+
+fn render_phase_banner(ui: &mut Context, phase: Phase, theme: Theme) {
     match phase {
         Phase::Playing => ui.text(" "),
         Phase::Paused => ui
             .text("Paused  ·  press p to resume")
             .bold()
-            .fg(Color::LightYellow),
+            .fg(theme.warning),
         Phase::GameOver => ui
             .text("Game Over  ·  press r to restart")
             .bold()
-            .fg(Color::LightRed),
+            .fg(theme.error),
     };
 }
 
@@ -738,6 +765,7 @@ fn seed() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slt::TestBackend;
 
     #[test]
     fn line_clear_removes_full_rows() {
@@ -970,5 +998,29 @@ mod tests {
 
         assert_eq!(piece.x, spawn_column());
         assert_eq!(piece.x, BOARD_WIDTH.saturating_sub(PREVIEW_SIZE) as i32 / 2);
+    }
+
+    #[test]
+    fn render_shows_stats_when_terminal_is_large_enough() {
+        let mut backend = TestBackend::new(MIN_WIDTH, MIN_HEIGHT);
+        let tetris = TetrisGame::new(1234);
+
+        backend.render(|ui| tetris.render(ui));
+
+        backend.assert_contains("Score");
+        backend.assert_contains("Lines");
+        backend.assert_contains("Level");
+        backend.assert_contains("1234");
+    }
+
+    #[test]
+    fn render_shows_resize_hint_when_terminal_is_too_small() {
+        let mut backend = TestBackend::new(MIN_WIDTH - 1, MIN_HEIGHT);
+        let tetris = TetrisGame::new(0);
+
+        backend.render(|ui| tetris.render(ui));
+
+        backend.assert_contains("Terminal too small");
+        backend.assert_contains("Score, lines, and level are clipped otherwise.");
     }
 }

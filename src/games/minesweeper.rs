@@ -128,11 +128,11 @@ impl MinesweeperGame {
                         "Terminal too small. Resize to at least {}x{}.",
                         MIN_WIDTH, MIN_HEIGHT
                     ))
-                    .fg(Color::Yellow);
-                    ui.text("Enter open  ·  f flag");
+                    .fg(theme.warning);
+                    ui.text("Enter open  ·  f flag").fg(theme.text);
                     #[cfg(debug_assertions)]
-                    ui.text("v debug clear preview").dim();
-                    ui.text("g game select  ·  q quit");
+                    ui.text("v debug clear preview").fg(theme.text_dim);
+                    ui.text("g game select  ·  q quit").fg(theme.text_dim);
                 });
             return;
         }
@@ -146,8 +146,9 @@ impl MinesweeperGame {
                 .w(GAME_WIDTH)
                 .ml(left)
                 .col(|ui| {
-                    ui.text("g game select  ·  r restart  ·  q quit").dim();
-                    render_phase_banner(ui, self.phase);
+                    ui.text("g game select  ·  r restart  ·  q quit")
+                        .fg(theme.text_dim);
+                    render_phase_banner(ui, self.phase, theme);
 
                     let _ = ui.container().gap(1).align(Align::Start).row(|ui| {
                         let _ = ui.container().align_self(Align::Start).col(|ui| {
@@ -478,49 +479,60 @@ fn render_sidebar(ui: &mut Context, game: &MinesweeperGame, theme: Theme) {
     let _ = ui.container().w(SIDEBAR_WIDTH).gap(1).col(|ui| {
         let _ = ui
             .bordered(Border::Rounded)
-            .title("Stats")
+            .title_styled("Stats", Style::new().fg(theme.primary).bold())
+            .border_style(Style::new().fg(theme.border))
+            .bg(theme.surface)
+            .text_color(theme.surface_text)
             .p(1)
             .gap(0)
             .col(|ui| {
                 let _ = ui.row(|ui| {
-                    ui.text("Time").dim();
+                    ui.text("Time").fg(theme.surface_text);
                     ui.spacer();
-                    ui.timer_display(game.elapsed).bold();
+                    ui.timer_display(game.elapsed).bold().fg(theme.primary);
                 });
                 let _ = ui.row(|ui| {
-                    ui.text("Best").dim();
+                    ui.text("Best").fg(theme.surface_text);
                     ui.spacer();
                     match game.best_time {
                         Some(best_time) => {
-                            ui.timer_display(best_time).bold().fg(Color::LightYellow);
+                            ui.timer_display(best_time).bold().fg(theme.warning);
                         }
                         None => {
-                            ui.text("--:--.--").dim();
+                            ui.text("--:--.--").fg(theme.surface_text);
                         }
                     };
                 });
                 let _ = ui.row(|ui| {
-                    ui.text("Mines Left").dim();
+                    ui.text("Mines Left").fg(theme.surface_text);
                     ui.spacer();
-                    ui.text(game.game.mines_left().to_string()).bold();
+                    ui.text(game.game.mines_left().to_string())
+                        .bold()
+                        .fg(theme.primary);
                 });
                 let _ = ui.row(|ui| {
-                    ui.text("Safe Left").dim();
+                    ui.text("Safe Left").fg(theme.surface_text);
                     ui.spacer();
-                    ui.text(game.game.remaining_safe_cells().to_string()).bold();
+                    ui.text(game.game.remaining_safe_cells().to_string())
+                        .bold()
+                        .fg(theme.primary);
                 });
             });
 
         let _ = ui
             .bordered(Border::Rounded)
-            .title("Status")
+            .title_styled("Status", Style::new().fg(theme.primary).bold())
+            .border_style(Style::new().fg(theme.border))
+            .bg(theme.surface)
+            .text_color(theme.surface_text)
             .p(1)
             .gap(0)
             .col(|ui| {
-                ui.text("30x30 field").bold();
-                ui.text("112 mines").bold();
-                ui.separator();
-                ui.text("First reveal is always safe.").dim();
+                ui.text("30x30 field").bold().fg(theme.surface_text);
+                ui.text("112 mines").bold().fg(theme.surface_text);
+                ui.separator_colored(theme.border);
+                ui.text("First reveal is always safe.")
+                    .fg(theme.surface_text);
                 match game.phase {
                     Phase::Playing => ui.text("Clear every safe tile.").fg(theme.primary),
                     Phase::Won => ui.text("Board cleared.").fg(theme.success),
@@ -529,34 +541,34 @@ fn render_sidebar(ui: &mut Context, game: &MinesweeperGame, theme: Theme) {
             });
 
         let _ = ui.container().title("control").gap(0).col(|ui| {
-            ui.text("h j k l - move").dim();
-            ui.text("enter/space - open").dim();
-            ui.text("f - flag").dim();
+            ui.text("h j k l - move").fg(theme.text_dim);
+            ui.text("enter/space - open").fg(theme.text_dim);
+            ui.text("f - flag").fg(theme.text_dim);
             if game.phase == Phase::Playing {
-                ui.text("r restart  g menu").dim();
+                ui.text("r restart  g menu").fg(theme.text_dim);
             } else {
-                ui.text("r restart").fg(Color::LightYellow);
+                ui.text("r restart").fg(theme.warning);
             }
             #[cfg(debug_assertions)]
             if game.phase == Phase::Playing {
-                ui.text("v - debug clear").fg(Color::LightCyan);
+                ui.text("v - debug clear").fg(theme.primary);
             }
-            ui.text("q quit").dim();
+            ui.text("q quit").fg(theme.text_dim);
         });
     });
 }
 
-fn render_phase_banner(ui: &mut Context, phase: Phase) {
+fn render_phase_banner(ui: &mut Context, phase: Phase, theme: Theme) {
     match phase {
         Phase::Playing => ui.text(" "),
         Phase::Won => ui
             .text("Clear  ·  victory wave active  ·  press r to restart")
             .bold()
-            .fg(Color::LightGreen),
+            .fg(theme.success),
         Phase::Lost => ui
             .text("Boom  ·  press r to restart")
             .bold()
-            .fg(Color::LightRed),
+            .fg(theme.error),
     };
 }
 
@@ -741,6 +753,7 @@ fn seed() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slt::TestBackend;
 
     #[test]
     fn first_reveal_never_places_mine_under_cursor() {
@@ -803,6 +816,19 @@ mod tests {
         game.board[2][2].has_mine = true;
 
         assert_eq!(game.render_cell(2, 2, Phase::Won), RenderCell::Flagged);
+    }
+
+    #[test]
+    fn render_shows_stats_when_terminal_is_large_enough() {
+        let mut backend = TestBackend::new(MIN_WIDTH, MIN_HEIGHT);
+        let game = MinesweeperGame::new(Some(1234));
+
+        backend.render(|ui| game.render(ui));
+
+        backend.assert_contains("Time");
+        backend.assert_contains("Best");
+        backend.assert_contains("Mines Left");
+        backend.assert_contains("Safe Left");
     }
 
     #[cfg(debug_assertions)]
