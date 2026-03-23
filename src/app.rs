@@ -86,6 +86,7 @@ impl App {
 
     fn render_menu(&self, ui: &mut Context) {
         let games = games::catalog();
+        let theme = *ui.theme();
 
         if ui.width() < 52 || ui.height() < 20 {
             let _ = ui
@@ -108,7 +109,7 @@ impl App {
             .p(1)
             .gap(1)
             .col(|ui| {
-                ui.text("Game Select").bold().fg(Color::LightCyan);
+                ui.text("Game Select").bold().fg(theme.primary);
                 ui.text("Choose a game and press Enter.").dim();
 
                 let _ = ui.container().gap(2).row(|ui| {
@@ -122,13 +123,13 @@ impl App {
                             for (index, game) in games.iter().enumerate() {
                                 let is_selected = index == self.selected_game;
                                 let prefix = if is_selected { ">" } else { " " };
-                                let color = if is_selected {
-                                    Color::LightGreen
-                                } else {
-                                    Color::White
-                                };
-
-                                ui.text(format!("{prefix} {}", game.name)).bold().fg(color);
+                                let entry = ui
+                                    .text(format!("{prefix} {}", game.name))
+                                    .bold()
+                                    .fg(Color::Reset);
+                                if is_selected {
+                                    entry.reversed();
+                                }
                             }
                         });
 
@@ -140,7 +141,7 @@ impl App {
                         .p(1)
                         .gap(1)
                         .col(|ui| {
-                            ui.text(selected.name).bold().fg(Color::LightYellow);
+                            ui.text(selected.name).bold().fg(theme.primary);
                             ui.text(selected.description);
                             ui.separator();
                             ui.text("More games can be added under src/games/.").dim();
