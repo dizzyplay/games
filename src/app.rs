@@ -137,14 +137,12 @@ impl App {
                     let _ = ui
                         .bordered(Border::Rounded)
                         .title("Details")
-                        .w(28)
+                        .w(48)
                         .p(1)
                         .gap(1)
                         .col(|ui| {
                             ui.text(selected.name).bold().fg(theme.primary);
                             ui.text(selected.description);
-                            ui.separator();
-                            ui.text("More games can be added under src/games/.").dim();
                         });
                 });
 

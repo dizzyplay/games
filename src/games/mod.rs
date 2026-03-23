@@ -23,12 +23,12 @@ pub const GAME_CATALOG: [GameDefinition; 2] = [
     GameDefinition {
         id: GameId::Tetris,
         name: "Tetris",
-        description: "Classic falling block puzzle built with superlighttui.",
+        description: "테트리스",
     },
     GameDefinition {
         id: GameId::Minesweeper,
         name: "Minesweeper",
-        description: "Reveal safe tiles, mark mines, and clear the board.",
+        description: "지뢰찾기",
     },
 ];
 
