@@ -5,12 +5,14 @@ use slt::Context;
 use crate::records::{Records, RecordsStore};
 
 pub mod minesweeper;
+pub mod mytetris;
 pub mod tetris;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameId {
     Tetris,
     Minesweeper,
+    MyTetris,
 }
 
 pub struct GameDefinition {
@@ -19,7 +21,7 @@ pub struct GameDefinition {
     pub description: &'static str,
 }
 
-pub const GAME_CATALOG: [GameDefinition; 2] = [
+pub const GAME_CATALOG: [GameDefinition; 3] = [
     GameDefinition {
         id: GameId::Tetris,
         name: "Tetris",
@@ -29,6 +31,11 @@ pub const GAME_CATALOG: [GameDefinition; 2] = [
         id: GameId::Minesweeper,
         name: "Minesweeper",
         description: "지뢰찾기",
+    },
+    GameDefinition {
+        id: GameId::MyTetris,
+        name: "My Tetris",
+        description: "try",
     },
 ];
 
@@ -45,6 +52,7 @@ pub enum GameSignal {
 pub enum RunningGame {
     Tetris(tetris::TetrisGame),
     Minesweeper(minesweeper::MinesweeperGame),
+    MyTetris(mytetris::MyTetrisGame),
 }
 
 impl RunningGame {
@@ -54,6 +62,7 @@ impl RunningGame {
             GameId::Minesweeper => Self::Minesweeper(minesweeper::MinesweeperGame::new(
                 records.minesweeper.best_time_centis,
             )),
+            GameId::MyTetris => Self::MyTetris(mytetris::MyTetrisGame::new()),
         }
     }
 
@@ -61,6 +70,7 @@ impl RunningGame {
         match self {
             Self::Tetris(game) => game.frame(ui, delta),
             Self::Minesweeper(game) => game.frame(ui, delta),
+            Self::MyTetris(game) => game.frame(ui),
         }
     }
 
@@ -68,6 +78,7 @@ impl RunningGame {
         match self {
             Self::Tetris(game) => store.update_tetris_high_score(game.high_score()),
             Self::Minesweeper(game) => store.update_minesweeper_best_time(game.best_time_centis()),
+            Self::MyTetris(game) => (),
         }
     }
 }

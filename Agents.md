@@ -2,3 +2,6 @@
 - Based on Terminal UI.
 - Use only superlightui for the UI library. Do not use other TUI libraries.
 - Use the terminal's default font color.
+
+- Explain First before implementation.
+- If implementation is necessary, keep it minimal and guide the user to implement the rest step by step.
