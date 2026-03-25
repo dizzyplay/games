@@ -73,12 +73,12 @@ impl TetrisGame {
     }
 
     fn restart(&mut self) {
+        self.high_score = self.high_score.max(self.game.score);
         self.game = Game::new();
         self.phase = Phase::Playing;
         self.gravity_accumulator = Duration::ZERO;
         self.lock_pending = false;
         self.clear_animation = None;
-        self.high_score = self.high_score.max(self.game.score);
     }
 
     pub fn high_score(&self) -> u32 {
@@ -1022,5 +1022,17 @@ mod tests {
 
         backend.assert_contains("Terminal too small");
         backend.assert_contains("Score, lines, and level are clipped otherwise.");
+    }
+
+    #[test]
+    fn restart_promotes_current_score_to_high_score() {
+        let mut tetris = TetrisGame::new(1200);
+        tetris.game.score = 2400;
+
+        tetris.restart();
+
+        assert_eq!(tetris.high_score, 2400);
+        assert_eq!(tetris.game.score, 0);
+        assert_eq!(tetris.high_score(), 2400);
     }
 }
