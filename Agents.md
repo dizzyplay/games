@@ -1,3 +1,4 @@
-- 게임들을 개발하는 프로젝트임
-- tui기반임 superlighttui외에 다른 tui라이브러리는 사용하지말것
-- 폰트 컬러는 터미널 theme 를 사용해야한다
+- This project is an arcade game bundle project.
+- Based on Terminal UI.
+- Use only superlightui for the UI library. Do not use other TUI libraries.
+- Use the terminal's default font color.
